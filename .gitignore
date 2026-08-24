@@ -1,0 +1,25 @@
+# Generated build and reproduction outputs
+/build/
+/build-icon/
+/build-rainbow/
+/repro-build/
+/repro-icon/
+/repro-rainbow/
+
+# Compiled binaries and debug artifacts
+*.exe
+*.pdb
+
+# Local editor and operating-system files
+/.vs/
+/.vscode/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
