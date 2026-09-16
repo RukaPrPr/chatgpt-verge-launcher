@@ -5,6 +5,10 @@
 /repro-build/
 /repro-icon/
 /repro-rainbow/
+/test-output/
+/bin/
+/obj/
+control-proxy.port
 
 # Compiled binaries and debug artifacts
 *.exe

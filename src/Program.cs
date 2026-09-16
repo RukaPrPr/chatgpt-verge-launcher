@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Local utility")]
 [assembly: AssemblyProduct("ChatGPT Verge Launcher")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("1.0.2.0")]
-[assembly: AssemblyFileVersion("1.0.2.0")]
+[assembly: AssemblyVersion("1.0.3.0")]
+[assembly: AssemblyFileVersion("1.0.3.0")]
 
 namespace ChatGptVergeLauncher
 {
@@ -98,14 +98,8 @@ namespace ChatGptVergeLauncher
             ExistingAppState existingState = InspectExistingChatGpt(chatGptExecutable, proxyArgument);
             if (existingState.IsRunning)
             {
-                if (existingState.UsesExpectedProxy)
-                {
-                    ActivateExistingWindow(existingState.ProcessIds);
-                    return 0;
-                }
-
                 MessageBox.Show(
-                    "检测到 ChatGPT 已经在运行，但它不是通过本启动器启动的。\r\n\r\n" +
+                    "检测到 ChatGPT 已经在运行。\r\n\r\n" +
                     "代理参数只能在 ChatGPT 启动时生效。请先在系统托盘中完全退出 ChatGPT，" +
                     "确认其所有窗口和后台进程均已结束，然后再次运行本启动器。\r\n\r\n" +
                     "启动器不会强制结束现有 ChatGPT，以免中断正在进行的任务。",
@@ -121,8 +115,10 @@ namespace ChatGptVergeLauncher
                 startInfo.FileName = chatGptExecutable;
                 startInfo.Arguments = proxyArgument;
                 startInfo.WorkingDirectory = Path.GetDirectoryName(chatGptExecutable);
-                startInfo.UseShellExecute = true;
-                startInfo.ErrorDialog = true;
+                startInfo.UseShellExecute = false;
+                startInfo.ErrorDialog = false;
+                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                ControlProxy.ConfigureLauncher(AppDomain.CurrentDomain.BaseDirectory, proxyEndpoint.Port);
 
                 Process.Start(startInfo);
                 return 0;
@@ -146,7 +142,12 @@ namespace ChatGptVergeLauncher
                 ? InspectExistingChatGpt(executable, BuildProxyArgument(proxyEndpoint.Port))
                 : new ExistingAppState();
 
-            Console.WriteLine("LauncherVersion=1.0.2");
+            Console.WriteLine("LauncherVersion=1.0.3");
+            string helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ControlProxy.HelperName);
+            Console.WriteLine("ControlProxyHelper=" + helper);
+            Console.WriteLine("ControlProxyHelperFound=" + File.Exists(helper));
+            Console.WriteLine("ControlProxyOverride=CODEX_NODE_REPL_PATH");
+            Console.WriteLine("ProxyEnvironment=HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,NO_PROXY");
             Console.WriteLine("ChatGptExecutable=" + (executable ?? String.Empty));
             Console.WriteLine("ChatGptExecutableFound=" + executableFound);
             Console.WriteLine("ProxyEndpoint=http://" + ProxyHost + ":" + proxyEndpoint.Port);
@@ -165,7 +166,7 @@ namespace ChatGptVergeLauncher
                 return 11;
             }
 
-            return 0;
+            return File.Exists(helper) ? 0 : 12;
         }
 
         private static bool HasArgument(string[] args, string expected)

@@ -41,9 +41,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="src\Program.cs" />
+    <Compile Include="src\ControlProxy.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\chatgpt-verge-rainbow-icon.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="BuildControlProxy" AfterTargets="Build">
+    <Csc Sources="src\ControlProxy.cs;src\ControlProxyHost.cs" References="@(ReferencePath)" OutputAssembly="$(TargetDir)ChatGPT-Verge-ControlProxy.exe" TargetType="Exe" Optimize="$(Optimize)" />
+    <ItemGroup><FileWrites Include="$(TargetDir)ChatGPT-Verge-ControlProxy.exe" /></ItemGroup>
+  </Target>
 </Project>

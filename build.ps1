@@ -6,6 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourcePath = Join-Path $projectRoot "src\Program.cs"
+$proxySourcePath = Join-Path $projectRoot "src\ControlProxy.cs"
+$hostSourcePath = Join-Path $projectRoot "src\ControlProxyHost.cs"
 $iconPath = Join-Path $projectRoot "assets\chatgpt-verge-rainbow-icon.ico"
 $compilerPath = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
@@ -26,6 +28,7 @@ New-Item -ItemType Directory -Path $resolvedOutput -Force | Out-Null
 
 $launcherPath = Join-Path $resolvedOutput "ChatGPT-Verge-Launcher.exe"
 $diagnosticPath = Join-Path $resolvedOutput "ChatGPT-Verge-Launcher-Diagnostics.exe"
+$helperPath = Join-Path $resolvedOutput "ChatGPT-Verge-ControlProxy.exe"
 
 & $compilerPath `
     /nologo `
@@ -38,7 +41,7 @@ $diagnosticPath = Join-Path $resolvedOutput "ChatGPT-Verge-Launcher-Diagnostics.
     /reference:System.Core.dll `
     /reference:System.Management.dll `
     /reference:System.Windows.Forms.dll `
-    $sourcePath
+    $sourcePath $proxySourcePath
 
 if ($LASTEXITCODE -ne 0) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
@@ -55,13 +58,16 @@ if ($LASTEXITCODE -ne 0) {
     /reference:System.Core.dll `
     /reference:System.Management.dll `
     /reference:System.Windows.Forms.dll `
-    $sourcePath
+    $sourcePath $proxySourcePath
 
 if ($LASTEXITCODE -ne 0) {
     throw "Diagnostic compilation failed with exit code $LASTEXITCODE"
 }
 
-Get-Item -LiteralPath $launcherPath, $diagnosticPath |
+& $compilerPath /nologo /target:exe /optimize+ /platform:anycpu "/out:$helperPath" /reference:System.dll /reference:System.Core.dll $hostSourcePath $proxySourcePath
+if ($LASTEXITCODE -ne 0) { throw "Control proxy compilation failed with exit code $LASTEXITCODE" }
+
+Get-Item -LiteralPath $launcherPath, $diagnosticPath, $helperPath |
     Select-Object FullName, Length, LastWriteTime
 
 Get-FileHash -Algorithm SHA256 -LiteralPath $launcherPath |
