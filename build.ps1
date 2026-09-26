@@ -8,6 +8,7 @@ $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourcePath = Join-Path $projectRoot "src\Program.cs"
 $proxySourcePath = Join-Path $projectRoot "src\ControlProxy.cs"
 $hostSourcePath = Join-Path $projectRoot "src\ControlProxyHost.cs"
+$packageSourcePaths = @((Join-Path $projectRoot "src\PackagedApp.cs"), (Join-Path $projectRoot "src\PackageLaunch.cs"))
 $iconPath = Join-Path $projectRoot "assets\chatgpt-verge-rainbow-icon.ico"
 $compilerPath = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
@@ -41,7 +42,8 @@ $helperPath = Join-Path $resolvedOutput "ChatGPT-Verge-ControlProxy.exe"
     /reference:System.Core.dll `
     /reference:System.Management.dll `
     /reference:System.Windows.Forms.dll `
-    $sourcePath $proxySourcePath
+    /reference:System.Xml.dll `
+    $sourcePath $proxySourcePath @packageSourcePaths
 
 if ($LASTEXITCODE -ne 0) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
@@ -58,7 +60,8 @@ if ($LASTEXITCODE -ne 0) {
     /reference:System.Core.dll `
     /reference:System.Management.dll `
     /reference:System.Windows.Forms.dll `
-    $sourcePath $proxySourcePath
+    /reference:System.Xml.dll `
+    $sourcePath $proxySourcePath @packageSourcePaths
 
 if ($LASTEXITCODE -ne 0) {
     throw "Diagnostic compilation failed with exit code $LASTEXITCODE"

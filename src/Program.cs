@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Management;
 using System.Net.Sockets;
@@ -15,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Local utility")]
 [assembly: AssemblyProduct("ChatGPT Verge Launcher")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("1.0.3.0")]
-[assembly: AssemblyFileVersion("1.0.3.0")]
+[assembly: AssemblyVersion("1.0.4.0")]
+[assembly: AssemblyFileVersion("1.0.4.0")]
 
 namespace ChatGptVergeLauncher
 {
@@ -51,6 +52,11 @@ namespace ChatGptVergeLauncher
         [STAThread]
         private static int Main(string[] args)
         {
+            // The package bridge runs while the outer launcher still owns the mutex.
+            if (args.Length == 4 && args[0] == "--launch-packaged")
+                return PackageLaunch.Reply(args[3], delegate { return LaunchInsidePackage(args[1], args[2]); });
+            if (HasArgument(args, "--launch-packaged")) return 4;
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -73,7 +79,8 @@ namespace ChatGptVergeLauncher
 
         private static int LaunchChatGpt()
         {
-            string chatGptExecutable = FindChatGptExecutable();
+            PackagedApp app = FindChatGptPackage();
+            string chatGptExecutable = app == null ? null : app.ExecutablePath;
             if (String.IsNullOrWhiteSpace(chatGptExecutable) || !File.Exists(chatGptExecutable))
             {
                 ShowError(
@@ -111,16 +118,8 @@ namespace ChatGptVergeLauncher
 
             try
             {
-                ProcessStartInfo startInfo = new ProcessStartInfo();
-                startInfo.FileName = chatGptExecutable;
-                startInfo.Arguments = proxyArgument;
-                startInfo.WorkingDirectory = Path.GetDirectoryName(chatGptExecutable);
-                startInfo.UseShellExecute = false;
-                startInfo.ErrorDialog = false;
-                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                ControlProxy.ConfigureLauncher(AppDomain.CurrentDomain.BaseDirectory, proxyEndpoint.Port);
-
-                Process.Start(startInfo);
+                PackageLaunch.RunWithReply(app, Assembly.GetExecutingAssembly().Location,
+                    "--launch-packaged", app.FullName, proxyEndpoint.Port.ToString(CultureInfo.InvariantCulture));
                 return 0;
             }
             catch (Exception exception)
@@ -128,21 +127,55 @@ namespace ChatGptVergeLauncher
                 ShowError(
                     "ChatGPT 启动失败。\r\n\r\n" +
                     exception.Message + "\r\n\r\n" +
-                    "可尝试更新或重置微软商店版 ChatGPT 后再试。");
+                    "请保留完整发布目录，并运行诊断程序检查程序包、代理端口与辅助组件。");
                 return 4;
+            }
+        }
+
+        private static string LaunchInsidePackage(string fullName, string portText)
+        {
+            PackageIdentity.RequireCurrent(fullName);
+            PackagedApp app = FindChatGptPackage();
+            if (app == null || app.FullName != fullName)
+                throw new InvalidOperationException("ChatGPT 程序包在启动期间发生变化，请重新运行启动器。");
+            int port;
+            if (!Int32.TryParse(portText, NumberStyles.None, CultureInfo.InvariantCulture, out port) || port < 1 || port > 65535)
+                throw new InvalidOperationException("无效的本地代理端口。");
+            string proxyArgument = BuildProxyArgument(port);
+            if (InspectExistingChatGpt(app.ExecutablePath, proxyArgument).IsRunning)
+                throw new InvalidOperationException("ChatGPT 已在启动期间运行，请先完全退出后再试。");
+
+            // Set these AFTER package activation, which discards the outer process environment.
+            ControlProxy.ConfigureLauncher(AppDomain.CurrentDomain.BaseDirectory, port);
+            var startInfo = new ProcessStartInfo(app.ExecutablePath, proxyArgument);
+            startInfo.WorkingDirectory = Path.GetDirectoryName(app.ExecutablePath);
+            startInfo.UseShellExecute = false;
+            startInfo.ErrorDialog = false;
+            startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+            using (Process process = Process.Start(startInfo))
+            {
+                if (PackageIdentity.ProcessFullName(process.Handle) != fullName)
+                    throw new InvalidOperationException("ChatGPT 未获得预期的 Windows 程序包标识。");
+                if (process.WaitForExit(1500))
+                    throw new InvalidOperationException("ChatGPT 启动后立即退出，退出代码：" + process.ExitCode);
+                return process.Id.ToString(CultureInfo.InvariantCulture);
             }
         }
 
         private static int RunDiagnostics()
         {
-            string executable = FindChatGptExecutable();
+            PackagedApp app = FindChatGptPackage();
+            string executable = app == null ? null : app.ExecutablePath;
             bool executableFound = !String.IsNullOrWhiteSpace(executable) && File.Exists(executable);
             ProxyEndpoint proxyEndpoint = DiscoverVergeProxy();
             ExistingAppState state = executableFound
                 ? InspectExistingChatGpt(executable, BuildProxyArgument(proxyEndpoint.Port))
                 : new ExistingAppState();
 
-            Console.WriteLine("LauncherVersion=1.0.3");
+            Console.WriteLine("LauncherVersion=1.0.4");
+            Console.WriteLine("LaunchMethod=WindowsPackageBridge");
+            Console.WriteLine("PackageFullName=" + (app == null ? String.Empty : app.FullName));
+            Console.WriteLine("AppUserModelId=" + (app == null ? String.Empty : app.FamilyName + "!" + app.ApplicationId));
             string helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ControlProxy.HelperName);
             Console.WriteLine("ControlProxyHelper=" + helper);
             Console.WriteLine("ControlProxyHelperFound=" + File.Exists(helper));
@@ -324,10 +357,10 @@ namespace ChatGptVergeLauncher
             }
         }
 
-        private static string FindChatGptExecutable()
+        internal static PackagedApp FindChatGptPackage()
         {
-            string registryResult = FindChatGptFromRegistry();
-            if (!String.IsNullOrWhiteSpace(registryResult))
+            PackagedApp registryResult = FindChatGptFromRegistry();
+            if (registryResult != null)
             {
                 return registryResult;
             }
@@ -335,7 +368,7 @@ namespace ChatGptVergeLauncher
             return FindChatGptWithPowerShell();
         }
 
-        private static string FindChatGptFromRegistry()
+        private static PackagedApp FindChatGptFromRegistry()
         {
             PackageCandidate bestCandidate = null;
 
@@ -364,15 +397,15 @@ namespace ChatGptVergeLauncher
                             }
 
                             string packageRoot = packageKey.GetValue("PackageRootFolder") as string;
-                            string executable = FindExecutableUnderPackageRoot(packageRoot);
-                            if (String.IsNullOrWhiteSpace(executable))
+                            PackagedApp app = PackagedApp.Read(packageKeyName, packageRoot);
+                            if (app == null)
                             {
                                 continue;
                             }
 
                             if (bestCandidate == null || packageVersion > bestCandidate.Version)
                             {
-                                bestCandidate = new PackageCandidate(packageVersion, executable);
+                                bestCandidate = new PackageCandidate(packageVersion, app);
                             }
                         }
                     }
@@ -383,7 +416,7 @@ namespace ChatGptVergeLauncher
                 return null;
             }
 
-            return bestCandidate == null ? null : bestCandidate.ExecutablePath;
+            return bestCandidate == null ? null : bestCandidate.App;
         }
 
         private static bool TryParseSupportedPackageVersion(string packageKeyName, out Version version)
@@ -410,39 +443,7 @@ namespace ChatGptVergeLauncher
             return false;
         }
 
-        private static string FindExecutableUnderPackageRoot(string packageRoot)
-        {
-            if (String.IsNullOrWhiteSpace(packageRoot) || !Directory.Exists(packageRoot))
-            {
-                return null;
-            }
-
-            string[] preferredLocations =
-            {
-                Path.Combine(packageRoot, "app", "ChatGPT.exe"),
-                Path.Combine(packageRoot, "ChatGPT.exe")
-            };
-
-            foreach (string preferredLocation in preferredLocations)
-            {
-                if (File.Exists(preferredLocation))
-                {
-                    return preferredLocation;
-                }
-            }
-
-            try
-            {
-                string[] matches = Directory.GetFiles(packageRoot, "ChatGPT.exe", SearchOption.AllDirectories);
-                return matches.Length == 0 ? null : matches[0];
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string FindChatGptWithPowerShell()
+        private static PackagedApp FindChatGptWithPowerShell()
         {
             try
             {
@@ -456,7 +457,7 @@ namespace ChatGptVergeLauncher
                     "$p=Get-AppxPackage | Where-Object { $_.Name -eq 'OpenAI.Codex' -or " +
                     "$_.Name -eq 'OpenAI.ChatGPT-Desktop' -or $_.Name -eq 'OpenAI.ChatGPT' } | " +
                     "Sort-Object Version -Descending | Select-Object -First 1; " +
-                    "if ($p) { [Console]::Out.Write($p.InstallLocation) }";
+                    "if ($p) { [Console]::Out.WriteLine($p.PackageFullName); [Console]::Out.WriteLine($p.InstallLocation) }";
 
                 ProcessStartInfo queryInfo = new ProcessStartInfo();
                 queryInfo.FileName = powerShellPath;
@@ -469,8 +470,8 @@ namespace ChatGptVergeLauncher
 
                 using (Process queryProcess = Process.Start(queryInfo))
                 {
-                    string output = queryProcess.StandardOutput.ReadToEnd().Trim();
-                    queryProcess.StandardError.ReadToEnd();
+                    var output = queryProcess.StandardOutput.ReadToEndAsync();
+                    var error = queryProcess.StandardError.ReadToEndAsync();
 
                     if (!queryProcess.WaitForExit(8000))
                     {
@@ -478,7 +479,10 @@ namespace ChatGptVergeLauncher
                         return null;
                     }
 
-                    return FindExecutableUnderPackageRoot(output);
+                    if (queryProcess.ExitCode != 0) return null;
+                    string[] fields = output.Result.Trim().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    error.Wait();
+                    return fields.Length == 2 ? PackagedApp.Read(fields[0], fields[1]) : null;
                 }
             }
             catch
@@ -640,14 +644,14 @@ namespace ChatGptVergeLauncher
 
         private sealed class PackageCandidate
         {
-            internal PackageCandidate(Version version, string executablePath)
+            internal PackageCandidate(Version version, PackagedApp app)
             {
                 Version = version;
-                ExecutablePath = executablePath;
+                App = app;
             }
 
             internal Version Version { get; private set; }
-            internal string ExecutablePath { get; private set; }
+            internal PackagedApp App { get; private set; }
         }
 
         private sealed class ExistingAppState

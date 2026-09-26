@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$BuildDirectory,[Parameter(Mandatory=$true)][string]$TestDirectory)
+param([Parameter(Mandatory=$true)][string]$BuildDirectory,[Parameter(Mandatory=$true)][string]$TestDirectory,[switch]$InstalledPackage)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $build = [IO.Path]::GetFullPath($BuildDirectory)
@@ -13,3 +13,17 @@ if ($LASTEXITCODE -ne 0) { throw 'Probe compilation failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
 & (Join-Path $test 'IntegrationTests.exe') $test
 if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed' }
+$packageSources = @(
+    (Join-Path $PSScriptRoot 'PackageTests.cs'),
+    (Join-Path $PSScriptRoot 'PackageProcessProbe.cs'),
+    (Join-Path $root 'src\Program.cs'),
+    (Join-Path $root 'src\PackagedApp.cs'),
+    (Join-Path $root 'src\PackageLaunch.cs'),
+    (Join-Path $root 'src\ControlProxy.cs')
+)
+& $compiler /nologo /target:exe /main:PackageTests "/out:$test\PackageTests.exe" /reference:System.dll /reference:System.Core.dll /reference:System.Xml.dll /reference:System.Management.dll /reference:System.Windows.Forms.dll @packageSources
+if ($LASTEXITCODE -ne 0) { throw 'Package test compilation failed' }
+$testArguments = @($test)
+if ($InstalledPackage) { $testArguments += '--installed-package' }
+& (Join-Path $test 'PackageTests.exe') @testArguments
+if ($LASTEXITCODE -ne 0) { throw 'Package tests failed' }
