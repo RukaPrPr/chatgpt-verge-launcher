@@ -38,10 +38,13 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Management" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="src\Program.cs" />
     <Compile Include="src\ControlProxy.cs" />
+    <Compile Include="src\PackagedApp.cs" />
+    <Compile Include="src\PackageLaunch.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="assets\chatgpt-verge-rainbow-icon.ico" />
