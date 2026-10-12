@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -16,8 +16,8 @@ using Microsoft.Win32;
 [assembly: AssemblyCompany("Local utility")]
 [assembly: AssemblyProduct("ChatGPT Verge Launcher")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
-[assembly: AssemblyVersion("1.0.4.0")]
-[assembly: AssemblyFileVersion("1.0.4.0")]
+[assembly: AssemblyVersion("1.0.6.0")]
+[assembly: AssemblyFileVersion("1.0.6.0")]
 
 namespace ChatGptVergeLauncher
 {
@@ -32,9 +32,7 @@ namespace ChatGptVergeLauncher
 
         private static readonly string[] SupportedPackagePrefixes =
         {
-            "OpenAI.Codex_",
-            "OpenAI.ChatGPT-Desktop_",
-            "OpenAI.ChatGPT_"
+            "OpenAI.Codex_"
         };
 
         private static readonly string[] VergeConfigFileNames =
@@ -52,10 +50,15 @@ namespace ChatGptVergeLauncher
         [STAThread]
         private static int Main(string[] args)
         {
+            if (args.Length == 5 && args[0] == "--hosts-session")
+                return RelaySession.Elevated(args[1], args[2], args[3], args[4]);
+            if (HasArgument(args, "--hosts-session")) return 4;
+            if (args.Length == 1 && args[0] == "--lifecycle-probe") { Thread.Sleep(2500); return 0; }
             // The package bridge runs while the outer launcher still owns the mutex.
             if (args.Length == 4 && args[0] == "--launch-packaged")
                 return PackageLaunch.Reply(args[3], delegate { return LaunchInsidePackage(args[1], args[2]); });
             if (HasArgument(args, "--launch-packaged")) return 4;
+            if (HasArgument(args, "--diagnose")) return RunDiagnostics();
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
@@ -65,12 +68,29 @@ namespace ChatGptVergeLauncher
             {
                 if (!createdNew)
                 {
+                    var current = FindChatGptPackage();
+                    if (current != null) ActivateExistingWindow(InspectExistingChatGpt(current.ExecutablePath, "").ProcessIds);
                     return 5;
                 }
 
                 if (HasArgument(args, "--diagnose"))
                 {
                     return RunDiagnostics();
+                }
+                if (HasArgument(args, "--restore-hosts") || HasArgument(args, "--validate-durable"))
+                {
+                    try
+                    {
+                        if (HasArgument(args, "--restore-hosts")) RelaySession.Run(0, null);
+                        else RelaySession.Run(DiscoverVergeProxy().Port, delegate {
+                            var info = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, "--lifecycle-probe");
+                            info.UseShellExecute = false; info.CreateNoWindow = true;
+                            return Process.Start(info).Id;
+                        }, HasArgument(args, "--simulate-parent-exit"));
+                        Console.WriteLine("DurableSessionCompleted=True; HostsRestored=True; AuthenticatedWebSocketTested=False");
+                        return 0;
+                    }
+                    catch (Exception error) { Console.Error.WriteLine(error); return 4; }
                 }
 
                 return LaunchChatGpt();
@@ -79,59 +99,52 @@ namespace ChatGptVergeLauncher
 
         private static int LaunchChatGpt()
         {
-            PackagedApp app = FindChatGptPackage();
-            string chatGptExecutable = app == null ? null : app.ExecutablePath;
-            if (String.IsNullOrWhiteSpace(chatGptExecutable) || !File.Exists(chatGptExecutable))
-            {
-                ShowError(
-                    "未找到微软商店版 ChatGPT。\r\n\r\n" +
-                    "请先从 Microsoft Store 安装或更新 ChatGPT，然后重试。");
-                return 1;
-            }
-
-            ProxyEndpoint proxyEndpoint = DiscoverVergeProxy();
-            if (!proxyEndpoint.IsReachable)
-            {
-                ShowError(
-                    "未检测到可用的本地 Verge mixed 代理。\r\n\r\n" +
-                    "检测结果：\r\n" +
-                    "    http://" + ProxyHost + ":" + proxyEndpoint.Port + "\r\n" +
-                    "    来源：" + proxyEndpoint.Source + "\r\n\r\n" +
-                    "请先启动 Clash Verge Rev，并确认 mixed-port 已正常监听本机回环地址。");
-                return 2;
-            }
-
-            string proxyArgument = BuildProxyArgument(proxyEndpoint.Port);
-            ExistingAppState existingState = InspectExistingChatGpt(chatGptExecutable, proxyArgument);
-            if (existingState.IsRunning)
-            {
-                MessageBox.Show(
-                    "检测到 ChatGPT 已经在运行。\r\n\r\n" +
-                    "代理参数只能在 ChatGPT 启动时生效。请先在系统托盘中完全退出 ChatGPT，" +
-                    "确认其所有窗口和后台进程均已结束，然后再次运行本启动器。\r\n\r\n" +
-                    "启动器不会强制结束现有 ChatGPT，以免中断正在进行的任务。",
-                    WindowTitle,
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-                return 3;
-            }
-
+            int result = 0;
+            Action notify = null;
             try
             {
-                PackageLaunch.RunWithReply(app, Assembly.GetExecutingAssembly().Location,
-                    "--launch-packaged", app.FullName, proxyEndpoint.Port.ToString(CultureInfo.InvariantCulture));
-                return 0;
+                // Recovery is acknowledged by the elevated helper before any early-return checks.
+                RelaySession.RunPrepared(delegate {
+                    PackagedApp app = FindChatGptPackage();
+                    if (app == null || !File.Exists(app.ExecutablePath))
+                    {
+                        result = 1;
+                        notify = delegate { ShowError("未找到微软商店版 ChatGPT。请先安装或更新后重试。上次会话残留已检查并清理。"); };
+                        return null;
+                    }
+                    ProxyEndpoint proxy = DiscoverVergeProxy();
+                    if (!proxy.IsReachable)
+                    {
+                        result = 2;
+                        notify = delegate { ShowError("未检测到可用的本地 Verge mixed 代理：http://" + ProxyHost + ":" + proxy.Port +
+                            "\r\n来源：" + proxy.Source + "\r\n\r\n上次会话残留已检查并清理。请启动 Clash Verge Rev 后重试。"); };
+                        return null;
+                    }
+                    if (InspectExistingChatGpt(app.ExecutablePath, BuildProxyArgument(proxy.Port)).IsRunning)
+                    {
+                        result = 3;
+                        notify = delegate { MessageBox.Show("ChatGPT 已经在运行。上次会话残留已检查并清理。\r\n\r\n请先从托盘完全退出 ChatGPT，再运行本启动器，以应用代理设置。启动器不会强制结束现有任务。",
+                            WindowTitle, MessageBoxButtons.OK, MessageBoxIcon.Information); };
+                        return null;
+                    }
+                    RuntimePaths runtime = ProxyRuntime.Prepare(AppDomain.CurrentDomain.BaseDirectory, app.ExecutablePath);
+                    GuardPlan guard = GuardPlan.Create(runtime);
+                    return new RelaySession.LaunchPlan(proxy.Port, delegate {
+                        return Int32.Parse(PackageLaunch.RunWithReply(app, Assembly.GetExecutingAssembly().Location,
+                            "--launch-packaged", app.FullName, proxy.Port.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
+                    }, guard);
+                });
+                // Do not leave the helper waiting for IPC while a user reads a dialog.
+                if (notify != null) notify();
+                return result;
             }
             catch (Exception exception)
             {
-                ShowError(
-                    "ChatGPT 启动失败。\r\n\r\n" +
-                    exception.Message + "\r\n\r\n" +
-                    "请保留完整发布目录，并运行诊断程序检查程序包、代理端口与辅助组件。");
+                ShowError("ChatGPT 启动或恢复失败。\r\n\r\n" + exception.Message +
+                    "\r\n\r\n请保留完整发布目录及恢复记录，运行诊断程序检查。取消 UAC 时，启动器无法清理系统 hosts。");
                 return 4;
             }
         }
-
         private static string LaunchInsidePackage(string fullName, string portText)
         {
             PackageIdentity.RequireCurrent(fullName);
@@ -146,7 +159,7 @@ namespace ChatGptVergeLauncher
                 throw new InvalidOperationException("ChatGPT 已在启动期间运行，请先完全退出后再试。");
 
             // Set these AFTER package activation, which discards the outer process environment.
-            ControlProxy.ConfigureLauncher(AppDomain.CurrentDomain.BaseDirectory, port);
+            ProxyRuntime.Configure(AppDomain.CurrentDomain.BaseDirectory, port);
             var startInfo = new ProcessStartInfo(app.ExecutablePath, proxyArgument);
             startInfo.WorkingDirectory = Path.GetDirectoryName(app.ExecutablePath);
             startInfo.UseShellExecute = false;
@@ -169,10 +182,43 @@ namespace ChatGptVergeLauncher
             bool executableFound = !String.IsNullOrWhiteSpace(executable) && File.Exists(executable);
             ProxyEndpoint proxyEndpoint = DiscoverVergeProxy();
             ExistingAppState state = executableFound
-                ? InspectExistingChatGpt(executable, BuildProxyArgument(proxyEndpoint.Port))
+                ? InspectExistingChatGpt(executable, ProxyServerArgument(proxyEndpoint.Port))
                 : new ExistingAppState();
 
-            Console.WriteLine("LauncherVersion=1.0.4");
+            Console.WriteLine("LauncherVersion=1.0.6");
+            Console.WriteLine("BuildRevision=" + LaunchLog.Revision);
+            try { LaunchLog.PrintDiagnostics(RelaySession.StateDirectory); }
+            catch (IOException error) { Console.WriteLine("LogDiagnosticsFailed=" + error.Message); }
+            catch (UnauthorizedAccessException error) { Console.WriteLine("LogDiagnosticsFailed=" + error.Message); }
+            Console.WriteLine("HostsTransactionDirectory=" + new HostsTransaction(HostsMapping.SystemPath).RecoveryDirectory);
+            Console.WriteLine("HostsTransactionPending=" + new HostsTransaction(HostsMapping.SystemPath).HasPending);
+            Console.WriteLine("DurableRelay=" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, RelaySession.RelayName));
+            Console.WriteLine("DurableRelayFound=" + File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, RelaySession.RelayName)));
+            try { Console.WriteLine("DurableHostsEnabled=" + HostsMapping.IsEnabled()); }
+            catch (IOException error) { Console.WriteLine("DurableHostsEnabled=Unknown; " + error.Message); }
+            Console.WriteLine("HostsLifecycle=OneUacHelperPerSession;CleanupOnAppExit;RecoverBeforePreflight;JournaledReplace");
+            Console.WriteLine("NodeUseEnvProxy=1");
+            Console.WriteLine("ProxyRuntimeOverrides=CODEX_CLI_PATH,CODEX_BROWSER_USE_NODE_PATH,CODEX_NODE_REPL_PATH");
+            Console.WriteLine("BrowserBackends=iab,mcpapps;ExternalChromeControl=DisabledInCodexRuntime");
+            Console.WriteLine("NetworkGuard=CodexDedicatedExecutablePathsOnly;SharedProgramsNotModified;PersistentUntilSafeCleanup");
+            try {
+                using (var policy = new WindowsGuardPolicy()) {
+                    int count = 0;
+                    foreach (var rule in policy.List()) if (rule.Group == NetworkGuard.OwnerGroup) count++;
+                    Console.WriteLine("InstalledCodexGuardRuleCount=" + count);
+                    policy.CheckAvailable(); Console.WriteLine("FirewallAvailableForCodexGuard=True");
+                }
+            } catch (Exception error) { Console.WriteLine("FirewallAvailableForCodexGuard=UnknownOrFalse; " + error.Message); }
+            Console.WriteLine("ChromiumDns=NoExternalResolution;QUIC=Disabled;WebRTC=DisableNonProxiedUDP");
+            string manifest = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ProxyRuntime.ManifestName);
+            Console.WriteLine("ProxyRuntimeManifestFound=" + File.Exists(manifest));
+            if (File.Exists(manifest)) {
+                try {
+                    var runtime = ProxyRuntime.Read(AppDomain.CurrentDomain.BaseDirectory);
+                    Console.WriteLine("ConfiguredNodeRuntime=" + runtime.Node);
+                    Console.WriteLine("ConfiguredCliRuntime=" + runtime.Codex);
+                } catch (Exception error) { Console.WriteLine("ProxyRuntimeManifestInvalid=" + error.Message); }
+            }
             Console.WriteLine("LaunchMethod=WindowsPackageBridge");
             Console.WriteLine("PackageFullName=" + (app == null ? String.Empty : app.FullName));
             Console.WriteLine("AppUserModelId=" + (app == null ? String.Empty : app.FamilyName + "!" + app.ApplicationId));
@@ -188,6 +234,7 @@ namespace ChatGptVergeLauncher
             Console.WriteLine("ProxyReachable=" + proxyEndpoint.IsReachable);
             Console.WriteLine("ChatGptRunning=" + state.IsRunning);
             Console.WriteLine("RunningWithExpectedProxy=" + state.UsesExpectedProxy);
+            Console.WriteLine("RunningWithProxy4Arguments=" + (executableFound && InspectExistingChatGpt(executable, BuildProxyArgument(proxyEndpoint.Port)).UsesExpectedProxy));
 
             if (!executableFound)
             {
@@ -199,7 +246,7 @@ namespace ChatGptVergeLauncher
                 return 11;
             }
 
-            return File.Exists(helper) ? 0 : 12;
+            return File.Exists(helper) && File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, RelaySession.RelayName)) ? 0 : 12;
         }
 
         private static bool HasArgument(string[] args, string expected)
@@ -220,9 +267,12 @@ namespace ChatGptVergeLauncher
             return false;
         }
 
+        private static string ProxyServerArgument(int port) { return "--proxy-server=http://" + ProxyHost + ":" + port; }
         private static string BuildProxyArgument(int port)
         {
-            return "--proxy-server=http://" + ProxyHost + ":" + port;
+            return ProxyServerArgument(port) +
+                " --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp" +
+                " --host-resolver-rules=\"MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE *.localhost, EXCLUDE 127.*, EXCLUDE [::1], EXCLUDE ::1\"";
         }
 
         private static ProxyEndpoint DiscoverVergeProxy()

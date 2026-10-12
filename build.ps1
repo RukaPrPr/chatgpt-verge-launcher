@@ -1,77 +1,25 @@
-param(
-    [string]$OutputDirectory = ""
-)
-
-$ErrorActionPreference = "Stop"
-
-$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sourcePath = Join-Path $projectRoot "src\Program.cs"
-$proxySourcePath = Join-Path $projectRoot "src\ControlProxy.cs"
-$hostSourcePath = Join-Path $projectRoot "src\ControlProxyHost.cs"
-$packageSourcePaths = @((Join-Path $projectRoot "src\PackagedApp.cs"), (Join-Path $projectRoot "src\PackageLaunch.cs"))
-$iconPath = Join-Path $projectRoot "assets\chatgpt-verge-rainbow-icon.ico"
-$compilerPath = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-
-if (-not (Test-Path -LiteralPath $compilerPath)) {
-    throw ".NET Framework C# compiler not found: $compilerPath"
+param([string]$OutputDirectory = '')
+$ErrorActionPreference = 'Stop'
+$projectRoot = $PSScriptRoot
+$compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+if (-not (Test-Path -LiteralPath $compiler)) { throw '.NET Framework C# compiler not found' }
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { $OutputDirectory = Join-Path $projectRoot 'build' }
+$output = [IO.Path]::GetFullPath($OutputDirectory)
+[void][IO.Directory]::CreateDirectory($output)
+$references = @('/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Management.dll', '/reference:System.Windows.Forms.dll', '/reference:System.Xml.dll', '/reference:System.Web.Extensions.dll', '/reference:Microsoft.CSharp.dll')
+$runtimeSources = @('ControlProxy.cs', 'ProxyRuntime.cs', 'ChildLifetime.cs', 'ProxyProcess.cs') | ForEach-Object { Join-Path $projectRoot "src\$_" }
+$launcherSources = @('Program.cs','PackagedApp.cs','PackageLaunch.cs','RelaySession.cs','HostsMapping.cs','HostsTransaction.cs','LaunchLog.cs','NetworkGuard.cs') | ForEach-Object { Join-Path $projectRoot "src\$_" }
+function Invoke-Compile([string]$name, [string]$target, [string[]]$sources, [string[]]$options = @()) {
+    $nativeArgs = @('/nologo', "/target:$target", '/optimize+', '/platform:anycpu', "/out:$output\$name") + $references + $options + $sources
+    & $compiler @nativeArgs
+    if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $name ($LASTEXITCODE)" }
 }
-
-if (-not (Test-Path -LiteralPath $iconPath)) {
-    throw "Application icon not found: $iconPath"
-}
-
-if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $projectRoot "build"
-}
-
-$resolvedOutput = [System.IO.Path]::GetFullPath($OutputDirectory)
-New-Item -ItemType Directory -Path $resolvedOutput -Force | Out-Null
-
-$launcherPath = Join-Path $resolvedOutput "ChatGPT-Verge-Launcher.exe"
-$diagnosticPath = Join-Path $resolvedOutput "ChatGPT-Verge-Launcher-Diagnostics.exe"
-$helperPath = Join-Path $resolvedOutput "ChatGPT-Verge-ControlProxy.exe"
-
-& $compilerPath `
-    /nologo `
-    /target:winexe `
-    /optimize+ `
-    /platform:anycpu `
-    /win32icon:$iconPath `
-    /out:$launcherPath `
-    /reference:System.dll `
-    /reference:System.Core.dll `
-    /reference:System.Management.dll `
-    /reference:System.Windows.Forms.dll `
-    /reference:System.Xml.dll `
-    $sourcePath $proxySourcePath @packageSourcePaths
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Launcher compilation failed with exit code $LASTEXITCODE"
-}
-
-& $compilerPath `
-    /nologo `
-    /target:exe `
-    /optimize+ `
-    /platform:anycpu `
-    /win32icon:$iconPath `
-    /out:$diagnosticPath `
-    /reference:System.dll `
-    /reference:System.Core.dll `
-    /reference:System.Management.dll `
-    /reference:System.Windows.Forms.dll `
-    /reference:System.Xml.dll `
-    $sourcePath $proxySourcePath @packageSourcePaths
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Diagnostic compilation failed with exit code $LASTEXITCODE"
-}
-
-& $compilerPath /nologo /target:exe /optimize+ /platform:anycpu "/out:$helperPath" /reference:System.dll /reference:System.Core.dll $hostSourcePath $proxySourcePath
-if ($LASTEXITCODE -ne 0) { throw "Control proxy compilation failed with exit code $LASTEXITCODE" }
-
-Get-Item -LiteralPath $launcherPath, $diagnosticPath, $helperPath |
-    Select-Object FullName, Length, LastWriteTime
-
-Get-FileHash -Algorithm SHA256 -LiteralPath $launcherPath |
-    Select-Object Algorithm, Hash, Path
+$applicationOptions = @("/win32manifest:$projectRoot\src\app.manifest", "/win32icon:$projectRoot\assets\chatgpt-verge-rainbow-icon.ico")
+Invoke-Compile 'ChatGPT-Verge-Launcher.exe' 'winexe' ($launcherSources + $runtimeSources) $applicationOptions
+Invoke-Compile 'ChatGPT-Verge-Launcher-Diagnostics.exe' 'exe' ($launcherSources + $runtimeSources) $applicationOptions
+Invoke-Compile 'ChatGPT-Verge-ControlProxy.exe' 'exe' ($runtimeSources + (Join-Path $projectRoot 'src\ControlProxyHost.cs'))
+Invoke-Compile 'ChatGPT-Verge-NodeProxy.exe' 'exe' ($runtimeSources + (Join-Path $projectRoot 'src\RuntimeProxyHost.cs')) @('/define:NODE_PROXY')
+Invoke-Compile 'ChatGPT-Verge-CodexProxy.exe' 'exe' ($runtimeSources + (Join-Path $projectRoot 'src\RuntimeProxyHost.cs'))
+Invoke-Compile 'ChatGPT-DurableRelay.exe' 'exe' @((Join-Path $projectRoot 'src\DurableRelay.cs'), (Join-Path $projectRoot 'src\LaunchLog.cs'), (Join-Path $projectRoot 'src\RelayDiagnostics.cs')) @('/reference:System.Runtime.Serialization.dll')
+Copy-Item -LiteralPath (Join-Path $projectRoot 'src\proxy-preload.cjs') -Destination $output
+Get-ChildItem -LiteralPath $output -File | Select-Object Name,Length

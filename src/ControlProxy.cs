@@ -42,13 +42,17 @@ namespace ChatGptVergeLauncher
             string proxy = "http://127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture);
             foreach (string key in new[] { "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY" })
                 Environment.SetEnvironmentVariable(key, proxy, EnvironmentVariableTarget.Process);
-            Environment.SetEnvironmentVariable("NO_PROXY", "localhost,127.0.0.1", EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("NO_PROXY", "localhost,127.0.0.1,::1,[::1]", EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("NODE_USE_ENV_PROXY", "1", EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("BROWSER_USE_AVAILABLE_BACKENDS", "iab,mcpapps", EnvironmentVariableTarget.Process);
         }
 
         internal static string ResolveRuntime()
         {
             // Codex regenerates this path for the currently selected runtime at every launch.
             string node = Environment.GetEnvironmentVariable("NODE_REPL_NODE_PATH");
+            if (String.Equals(Path.GetFileName(node), ProxyRuntime.NodeHelper, StringComparison.OrdinalIgnoreCase))
+                return ProxyRuntime.Read(AppDomain.CurrentDomain.BaseDirectory).NodeRepl;
             if (String.IsNullOrWhiteSpace(node) || !Path.IsPathRooted(node) || !File.Exists(node))
                 throw new FileNotFoundException("Codex did not provide a valid NODE_REPL_NODE_PATH.");
             string runtime = Path.Combine(Path.GetDirectoryName(node), "node_repl.exe");

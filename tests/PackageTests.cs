@@ -27,7 +27,11 @@ internal static class PackageTests
     {
         foreach (string key in new[] { "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY" })
             if (Environment.GetEnvironmentVariable(key) != "http://127.0.0.1:17896") throw new Exception("Lost " + key);
-        if (Environment.GetEnvironmentVariable("NO_PROXY") != "localhost,127.0.0.1") throw new Exception("Lost NO_PROXY");
+        if (Environment.GetEnvironmentVariable("NO_PROXY") != "localhost,127.0.0.1,::1,[::1]") throw new Exception("Lost NO_PROXY");
+        if (Environment.GetEnvironmentVariable("NODE_USE_ENV_PROXY") != "1") throw new Exception("Lost NODE_USE_ENV_PROXY");
+        if (Environment.GetEnvironmentVariable("BROWSER_USE_AVAILABLE_BACKENDS") != "iab,mcpapps") throw new Exception("Lost browser restriction");
+        foreach (string key in new[] { "CODEX_CLI_PATH", "CODEX_BROWSER_USE_NODE_PATH" })
+            if (!File.Exists(Environment.GetEnvironmentVariable(key))) throw new Exception("Lost " + key);
         string helper = Environment.GetEnvironmentVariable("CODEX_NODE_REPL_PATH");
         if (String.IsNullOrWhiteSpace(helper) || !File.Exists(helper)) throw new Exception("Lost control proxy helper");
     }
@@ -50,7 +54,7 @@ internal static class PackageTests
                 {
                     PackageIdentity.RequireCurrent(args[1]);
                     if (args[4] != ComplexArgument || args[5] != "") throw new Exception("Activation arguments changed");
-                    ControlProxy.ConfigureLauncher(args[2], 17896);
+                    ProxyRuntime.Configure(args[2], 17896);
                     VerifyProxy();
                     string report = Path.Combine(args[2], "child-environment.txt");
                     var info = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,
@@ -63,6 +67,16 @@ internal static class PackageTests
                         if (child.ExitCode != 0) throw new Exception("Environment probe failed: " + child.ExitCode);
                     }
                     if (File.ReadAllText(report) != "proxy-and-arguments-ok") throw new Exception("Missing environment report");
+                    foreach (string name in new[] { ProxyRuntime.CliHelper, ProxyRuntime.NodeHelper }) {
+                        var probeInfo = new ProcessStartInfo(Path.Combine(args[2], name), "--version");
+                        probeInfo.UseShellExecute = false; probeInfo.CreateNoWindow = true;
+                        probeInfo.RedirectStandardOutput = true; probeInfo.RedirectStandardError = true;
+                        using (var probe = Process.Start(probeInfo)) {
+                            var output = probe.StandardOutput.ReadToEndAsync(); var error = probe.StandardError.ReadToEndAsync();
+                            if (!probe.WaitForExit(10000)) { probe.Kill(); throw new TimeoutException("Package runtime timeout"); }
+                            if (probe.ExitCode != 0 || String.IsNullOrWhiteSpace(output.Result)) throw new Exception("Package runtime failed: " + name + " " + error.Result);
+                        }
+                    }
                     string identity = PackageProcessProbe.ReadSuspendedIdentity(args[3]);
                     if (identity != args[1]) throw new Exception("Real ChatGPT executable did not inherit package identity");
                     return identity;
@@ -95,10 +109,11 @@ internal static class PackageTests
             {
                 PackagedApp installed = Program.FindChatGptPackage();
                 Check(installed != null, "installed ChatGPT manifest discovery");
+                ProxyRuntime.Prepare(root, installed.ExecutablePath);
                 string self = Assembly.GetExecutingAssembly().Location;
                 string reply = PackageLaunch.RunWithReply(installed, self, "--bridge-probe", installed.FullName,
                     root, installed.ExecutablePath, ComplexArgument, "");
-                Check(reply == installed.FullName, "package bridge, real executable identity, proxy inheritance, Unicode and quoted arguments");
+                Check(reply == installed.FullName, "package bridge, new CLI/Node entrypoints, real executable identity, proxy inheritance, Unicode and quoted arguments");
                 bool errorRelayed = false;
                 try { PackageLaunch.RunWithReply(installed, self, "--bridge-error"); }
                 catch (InvalidOperationException error) { errorRelayed = error.Message == "测试错误：bridge failed"; }

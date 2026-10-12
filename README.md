@@ -1,79 +1,136 @@
-# ChatGPT Verge Launcher 1.0.4
+# ChatGPT Verge Launcher 1.0.6
 
-一个仅用于当前 Windows 用户的一次性启动器。它自动读取 Clash Verge Rev 当前的 `mixed-port`，让微软商店版 ChatGPT 使用对应的本地 HTTP mixed 代理，例如：
+修订标识：`codex-proxy-6`；文件版本：`1.0.6.0`。
+
+用于 Windows 上 OpenAI.Codex 商店程序包的专用启动器，通过 Clash Verge Rev 的本地 mixed-port 为桌面应用、内置浏览器和专用控制组件配置代理。1.0.6 汇总 durable 转发、事务恢复、专用防直连规则、内置浏览器限制与 Node 标准流修复；本次发布采用最终的 proxy6 修订。
+
+本修订仅补充 **durable 转发的断连诊断日志**：记录两侧连接端点、CONNECT 状态、连接持续时间、双向字节数、最先观察到的结束方向、EOF/异常及 Windows Socket 错误码；启动器主动结束转发进程和观察到转发进程退出时，也记录原因与 PID。
+
+保留 proxy5 的 Node 标准流修复及全部既有网络行为，不调整代理选择、DNS/TLS、CONNECT 超时、重试、关闭顺序、规则范围或浏览器限制。构建与测试不切换当前 Codex 会话，新包单独保存，**下次正常退出 Codex 后从新目录启动才生效**。
+
+## 使用
+
+1. 从 [GitHub Release](https://github.com/RukaPrPr/chatgpt-verge-launcher/releases/tag/v1.0.6) 下载程序 ZIP 并完整解压，保留六个 EXE 与 `proxy-preload.cjs`。运行 Clash Verge Rev，确认本地 mixed-port 可用，例如 `7896`。
+2. 准备切换时，从托盘正常退出旧 Codex。无需关闭或修改外部 Chrome。不要把新文件覆盖到仍在使用的旧目录。
+3. 直接双击 `ChatGPT-Verge-Launcher.exe`，同意一次 UAC。不要手动选择“以管理员身份运行”。提权助手负责 Codex 专用规则与 hosts；应用、CLI、Node、转发程序保持普通权限。
+4. 启动器先检查恢复状态，再发现当前程序包、验证代理和运行时、安装专用规则、验证后台 TLS，最后启动 Codex。规则安装或验证失败时不启动新应用。
+5. 后续浏览器控制只提供 `iab` 和 `mcpapps`。Chrome、Edge、远程 CDP 后端被运行时拒绝；外部浏览器及扩展安装、注册信息不变。已存在的旧会话不会被热切换。
+
+启动器自行引入的提权流程只有一次。Codex 自身的安装、更新或首次沙箱设置属于应用自己的权限流程，不能用启动器的承诺替代。现有 Codex 沙箱服务不被停止、重启或修改启动方式。
+
+发布文件：
+
+- `ChatGPT-Verge-Launcher.exe`：主入口。
+- `ChatGPT-Verge-Launcher-Diagnostics.exe`：只读诊断及原有恢复入口。
+- `ChatGPT-Verge-ControlProxy.exe`：恢复 node_repl 的代理环境。
+- `ChatGPT-Verge-NodeProxy.exe`：恢复过滤后的环境，加载专用代理预加载模块。
+- `ChatGPT-Verge-CodexProxy.exe`：在桌面程序覆盖环境之后，恢复 MCP 的 Node 入口。
+- `ChatGPT-DurableRelay.exe`：保留原有 durable WebSocket 转发。
+- `proxy-preload.cjs`：只由上述专用 Node 入口加载，不安装到系统 Node。
+
+`proxy-runtime.json` 和 `control-proxy.port` 在首次正常启动时生成。Node 和 CLI 路径取自当前选择的商店程序包，不猜测旧缓存，也不使用系统共享 Node。请勿复制其他机器或旧版本的运行时清单。
+
+## 网络处理
+
+| 组件 | 处理 |
+| --- | --- |
+| Codex 界面、内置浏览器 | Chromium 代理参数指向本地 mixed-port；禁用 QUIC，限制 WebRTC 非代理 UDP，外部 DNS 解析失败并保留本地地址 |
+| durable WebSocket | 原 URL、SNI、TLS 和认证保留，经本地 443 转发，再经 mixed-port 的 CONNECT |
+| 控制组件与 Code Review 等使用 MCP Node 入口的插件 | 恢复 `NODE_USE_ENV_PROXY=1`，外部 HTTP/HTTPS 与 bundled ws 强制 CONNECT；覆盖自定义 Agent/agent=false 的直连路径 |
+| Node fetch、原生 WebSocket | 在实际 Node 启动前恢复环境代理；本机测试代理已验证 |
+| Node 裸 TCP、UDP、显式 DNS 查询 | 在预加载模块覆盖的标准接口中拒绝外部访问；不做直接回退 |
+| 已枚举的 Codex 专用 EXE | Windows 防火墙对该具体路径设置入站、出站非回环阻止规则，覆盖 TCP、UDP、IPv4、IPv6；回环 IPC/代理保留 |
+
+HTTPS 仍校验证书和主机名。不安装根证书，不设置 `NODE_TLS_REJECT_UNAUTHORIZED=0`。原转发器通过代理进行 DoH 查询和隧道连接，代理不可用时失败。
+
+规则仅涵盖当前 Codex 程序包 `app` 目录、`%LOCALAPPDATA%\OpenAI\Codex\bin` / `runtimes`、默认 `%USERPROFILE%\.codex\plugins\cache` 中枚举到的具体 EXE；排除缓存及程序包内的外部 Chrome 扩展宿主。目录重解析点不被当作扩大范围的通道。不会给 Chrome、系统 Node、Git、Python、PowerShell、Clash 或其他商店应用添加规则，也不会修改它们的配置、进程或文件。
+
+只修改启动器自身文件、进程级环境，以及下次启动时创建的 Codex 专用规则；不改商店包、系统代理、Clash 配置，不启用 TUN、不安装 Proxifier、驱动、服务或计划任务。
+
+## 范围与限制
+
+这不是“任意 Codex 用法均无法绕过”的完整网络隔离方案。
+
+- 完整启动流程只适用于从此启动器启动的会话。直接从开始菜单或其他路径运行 Codex、直接运行内部辅助入口，不等同于已完成网络保护检查。
+- 共享 Git、Python、PowerShell、系统 Node、外部自定义 MCP、WSL、Docker、SSH/远程主机中的程序不受这些按专用路径建立的规则约束。继承代理环境只对遵守该环境的客户端有效。按共享 EXE 设置规则会影响其他软件，因此没有采用。
+- 本机会话开始后新增或移动到其他路径的可执行文件，不自动获得已安装的规则；安装/更新插件、运行时或商店应用后应正常退出并从启动器重启。自定义 `CODEX_HOME` 外部插件目录不自动纳入默认目录范围。
+- 回环用于代理与本机 IPC，并非只允许 7896 一个端口。规则不提供对恶意插件、本机网络代理服务或系统服务代发请求的完整隔离；原生程序通过系统 DNS 服务发出的查询也不能仅靠 EXE 防火墙规则证明全部受控。
+- 不支持代理的功能可能失败，不会保证语音、任意 UDP 协议、任意自建网络库都能工作。WebRTC/真实语音需要重启后验收。
+- 请求到达 7896 后仍遵循用户现有的 Clash 分流规则；Clash 自身选择 DIRECT 与程序绕过本地代理是不同情况。本修订不修改 Clash 分流。
+- 云端工具或远程运行环境的出站连接不属于本机代理范围。
+
+## durable 的原有单域名映射
 
 ```text
-http://127.0.0.1:7896
+# BEGIN ChatGPT-Verge-DurableRelay v1
+127.0.0.1 codex-cloud-backend.chatgpt.com
+# END ChatGPT-Verge-DurableRelay v1
 ```
 
-启动器不会修改 Windows 系统代理，不会启用 TUN，也不会读取 Verge 的订阅、节点或密钥。启动器启动应用后退出；控制代理组件仅随 Codex 的控制运行时存活。
+此原有机制仍是系统 hosts 中的单域名映射，会影响本机任何访问该域名的程序；它不是按进程的 DNS 映射。127.0.0.1:443 必须可用。只添加和移除启动器自己的原样区块，不覆盖已有同域名条目或其他软件的 hosts 内容。加映射前后验证正常 TLS；异常时保留证据并按事务恢复。
 
-程序内嵌原创的彩虹编织结应用图标，源图及多分辨率 ICO 位于 `assets` 目录。
+## 退出和恢复
 
-## 使用方法
+- 普通启动器退出：独立提权助手继续监控。应用退出后撤销 hosts，再结束转发。
+- 专用 Node/CLI 入口被强杀：Windows Job Object 结束该入口拥有的运行时后代；不枚举杀死共享程序或外部浏览器。
+- 仍有普通 Codex 受保护进程运行：保留其规则。再次启动遇到这些进程时拒绝解除保护，要求先正常退出 Codex。
+- Codex 自带的常驻沙箱服务：保留它的两条规则，下一会话验证并复用；不停止服务，不短暂移除它的保护。服务仍运行时不会自动删除这两条规则。
+- 提权助手被强杀、断电或系统重启：防火墙规则持续存在。下次运行启动器并同意 UAC 后恢复自己的规则和 hosts 事务；没有后台开机恢复服务。
+- 规则名称/路径不匹配、事务损坏或无法确认外部修改：停止并保留记录，不覆盖不明数据。系统防火墙关闭或策略不可用时，拒绝宣称防直连保护已就绪，也不会修改全局防火墙设置。
 
-1. 启动 Clash Verge Rev。可以关闭 Verge 的“系统代理”。
-2. 如果 ChatGPT 已经运行，请先在系统托盘中完全退出 ChatGPT。
-3. 解压并保留完整发布目录，包括 `ChatGPT-Verge-Launcher.exe` 和 `ChatGPT-Verge-ControlProxy.exe`，双击前者。
-4. 启动器自动读取并验证 `mixed-port`，从商店包清单读取 ChatGPT 的 AppID，以程序包身份启动桥接进程；桥接进程再设置 `--proxy-server`、进程级代理和 `CODEX_NODE_REPL_PATH` 后启动 ChatGPT。
-5. Codex 启动控制组件时，辅助程序为原版 `node_repl.exe` 补齐代理，再转发控制协议。首次启动会在程序目录生成只含本地端口的 `control-proxy.port`，此目录需可写。
+原有 `--restore-hosts` 恢复入口也会处理自己的旧网络规则，仍保留活跃服务的规则。先退出普通 Codex 会话后使用：
 
-建议将本启动器固定到任务栏，并关闭 ChatGPT 自身的开机启动，避免 ChatGPT 在没有代理参数的情况下提前运行。
+```powershell
+.\ChatGPT-Verge-Launcher-Diagnostics.exe --restore-hosts
+```
 
-## 1.0.4 更新兼容性
+日志位于 `%USERPROFILE%\.chatgpt-verge-launcher\logs\<会话 GUID>`，分 `launcher-<PID>.log`、`hosts-<PID>.log`、`relay-<PID>.log`。记录实际文件句柄路径，避免商店关联环境的 AppData 视图错位。运行中主日志失败会尝试发布目录 `diagnostics` 并输出 stderr；两者均不可写时不保证有磁盘记录。日志故障不终止当前连接。
 
-新版 ChatGPT 会使用要求 Windows 程序包身份的接口。1.0.3 直接运行安装目录下的 `ChatGPT.exe`，可能出现 **ChatGPT failed to start / 该进程没有程序包标识符**。本版改为通过 Windows 自带 Appx 模块的 `Invoke-CommandInDesktopPackage` 启动短暂的桥接进程，再由它启动安装包内的 ChatGPT。
+## 新增断连诊断
 
-程序包激活不会继承外部启动器的进程环境，因此代理变量在桥接进程内设置。启动器会确认桥接与 ChatGPT 的程序包身份，通过当前用户专用的本地命名管道接收启动结果，并报告激活失败或应用立即退出。它不会在失败后回退到缺少程序包身份的直接启动方式。
+同一转发进程内使用 `tunnel=<序号>` 关联 `CONNECT_OK`、`CLOSED`、`FAILED` 和 `SHUTDOWN_SNAPSHOT`。日志自身带有时间、进程和会话信息，可与应用的 durable WebSocket 日志按时间对照。
 
-升级时保留完整目录中的两个 EXE；也可用新发布目录替换旧目录内的全部发布文件，原有快捷方式即可继续使用。更新文件后，仍需从托盘完整退出 ChatGPT，再运行启动器。
+| 字段 | 含义 |
+| --- | --- |
+| `client` / `listener` / `upstreamLocal` / `target` | 本地客户端、监听端、连接代理的本地端口与 CONNECT 目标 IP；代理端口沿用 LISTEN 和 CONNECT_OK 记录 |
+| `phase` / `connectStatus` | 失败或结束时的阶段，以及已收到的 CONNECT 数字状态；0 表示未取得状态 |
+| `connectMs` / `elapsedMs` / `connectedMs` | 建立隧道耗时、从接受连接到取样的总时长、隧道建立后时长；未建立时 connectMs/connectedMs 为 0 |
+| `upBytes` / `downBytes` | 本地到代理、代理到本地的已成功完成写入字节数，不含 CONNECT 头；不是远端确认收到的字节数 |
+| `firstObserved` / `upAtClose` / `downAtClose` | 关闭两端前最先观察到的方向及当时状态；两方向已完成时记 `both`，不推断先后 |
+| `upOutcome` / `downOutcome` | 清理后取样的方向状态：eof、faulted、canceled、pending 或 not_started |
+| `*ErrorOperation` / `*ErrorType` / `*HResult` / `*SocketError` / `*NativeError` | 写入或读取/复制异常、异常类型及数字错误码；包括内层 SocketException，例如 ConnectionReset / 10054 |
+| `cleanupReason` / `closeObservedMs` | 进入清理的分类，以及首次观察到转发完成时距接受连接的毫秒数；尚未观察为 -1 |
 
-## 安全行为
+`local_to_proxy` 表示从本地客户端读取并向代理写入的方向，`proxy_to_local` 表示反向。应结合 ErrorOperation 判断出错操作，不能把方向直接等同于责任方。`upAtClose=pending` 而最终 `upOutcome=faulted` 可能是随后关闭两端引起的，不能单凭最终异常判定原始断连原因。并发取样不能精确确定网络事件的物理先后顺序。
 
-- 只读取 Clash Verge Rev 配置中的顶层 `mixed-port`，不会解析或输出订阅节点。
-- 只连接本机回环地址 `127.0.0.1` 上检测到的端口。
-- 当前配置读取失败时回退检查 `7896`，但仍以实际端口连通性为准。
-- 动态寻找当前安装的 `OpenAI.Codex` / ChatGPT 商店包，升级后不依赖旧版本路径。
-- 如果发现普通方式启动的 ChatGPT 已在运行，只显示提示，不会强制结束进程。
-- 已运行的应用必须完整退出后才能重新应用启动配置；不会仅凭现有 `--proxy-server` 参数误判控制代理已经生效。
-- 不要求管理员权限。
-- 不启用程序包调试模式，不修改程序包清单、用户环境变量或应用数据。
+`RELAY_KILL_REQUESTED` 记录启动器已有清理路径准备结束转发进程的原因；`RELAY_EXIT_OBSERVED` 记录应用仍运行时观察到的转发 PID、应用 PID 和退出码。显式 stop 事件结束转发时，`SHUTDOWN_SNAPSHOT` 尽力保留活动隧道状态。没有新增停止等待、后台监控、心跳或重试。
 
-## 已知限制
+日志不记录数据正文、CONNECT 头、异常消息、Cookie 或令牌。TLS 保持端到端加密，因此转发器不能读取 WebSocket close frame，也不能仅凭 TCP 重置判断是 Clash、远端代理、服务器还是中间网络发起。进程强杀、系统断电及主/备用日志路径均不可写时，不能保证最后一条快照落盘。
 
-- Codex 会重新生成受管理的 MCP 配置，直接编辑其中的 `env_vars` 可能在启动时被覆盖。本版使用当前应用已提供的 `CODEX_NODE_REPL_PATH` 覆盖入口，不修改 Codex 安装文件或超时设置。
-- 控制运行时从 Codex 提供的 `NODE_REPL_NODE_PATH` 同目录寻找原版 `node_repl.exe`，不固定安装版本。若未来 Codex 改变覆盖入口或运行时目录结构，辅助程序会明确报错，需要适配。
-- 代理环境变量只影响本次启动的进程树，不写入系统或用户环境变量。辅助程序不修改控制组件权限或授权流程。
-- 程序包桥接依赖 Windows PowerShell 5.1 内置的 Appx 模块，仅支持清单声明为 `Windows.FullTrustApplication` 的 ChatGPT 桌面应用，不适用于任意 UWP 应用。Windows 对此命令只保证程序包身份与虚拟资源上下文；后续系统或应用更新仍可能需要适配。参见 [Microsoft 命令说明](https://learn.microsoft.com/en-us/powershell/module/appx/invoke-commandindesktoppackage)。
+## 验收与构建
 
-- 自动识别适用于 Clash Verge Rev 的标准 Windows 配置目录；非常规便携版目录可能需要后续增加支持。
-- HTTP 代理覆盖 ChatGPT 的 TCP/HTTPS/WebSocket 流量。实时语音等 UDP 功能不保证经过该端口。
-- EXE 未进行商业代码签名，首次运行时 Windows 可能显示 SmartScreen 提示。
+只读诊断不会启动应用、安装规则或弹 UAC：
 
-## 构建
+```powershell
+.\ChatGPT-Verge-Launcher-Diagnostics.exe --diagnose
+```
 
-使用 Windows 自带的 .NET Framework 64 位 C# 编译器，无第三方依赖：
+它区分当前 `RunningWithExpectedProxy`、新参数 `RunningWithProxy4Arguments` 以及实际 `InstalledCodexGuardRuleCount`，不会把新发布包的配置描述当作当前会话已经生效。
+
+本修订通过 97 项检查：73 项控制入口、程序包清单、hosts 事务和日志回归，13 项诊断单元检查，11 项独立回环网络场景。覆盖双向 EOF/TCP 重置、CONNECT 拒绝/提前关闭/连接拒绝、原有 5 秒 CONNECT 截止、超过 20 秒空闲后继续传输、主动停止快照、运行中日志故障及备用保存。测试未使用当前 443 或 7896 连接。
+
+发布前测试保留原有 proxy5 会话，没有启动新主入口、弹出 UAC、操作正式 hosts/防火墙或控制浏览器。**新日志尚未在正式 Codex 会话中重启验收，不能把隔离测试当作真实断连原因已经查明。**历史 proxy5 的 154 项检查未重复计入本次通过数。公开验证摘要见 [VALIDATION.md](VALIDATION.md)；本机原始日志、进程信息和配置快照不随公开包分发。
+
+使用 Windows .NET Framework 编译器，无 NuGet 依赖：
 
 ```powershell
 pwsh -NoProfile -File .\build.ps1
-```
-
-入口位于 `src\Program.cs`；程序包发现和桥接位于 `src\PackagedApp.cs`、`src\PackageLaunch.cs`。
-
-构建同时生成启动器、诊断程序和控制代理组件，无需另装 .NET 10。可运行 `ChatGPT-Verge-Launcher-Diagnostics.exe --diagnose` 检查程序包全名、AppID、安装路径、代理端口与辅助程序是否齐全；诊断不会启动 ChatGPT，静态诊断不代表实际网页验收通过。
-
-运行隔离集成测试：
-
-```powershell
 pwsh -NoProfile -File .\tests\run.ps1 -BuildDirectory .\build -TestDirectory .\test-output
+pwsh -NoProfile -File .\tests\run-relay-diagnostics.ps1 -BuildDirectory .\build -TestDirectory .\relay-diagnostic-output
+# 需要已安装程序包的额外检查时，给 run.ps1 添加 -InstalledPackage；本次未启用。
+# 另外运行 tests/run-proxy4.ps1 和 tests/run-transports.ps1；参数见脚本。
+# 历史 proxy5 的真实 REPL 回归，TestDirectory 必须是尚不存在的隔离目录：
+# pwsh -NoProfile -File .\tests\run-proxy5.ps1 -BuildDirectory .\build -TestDirectory .\stdio-test-output -PackageExecutable '<当前商店包的 app\ChatGPT.exe 完整路径>'
 ```
 
-测试覆盖代理缺失后的恢复、端口更新、带空格/引号/尾反斜杠的参数、UTF-8 协议流、标准错误隔离、子进程退出码、无效端口、缺失运行时、清单 AppID 解析和程序包身份检查。
-
-在已安装 ChatGPT 的 Windows 当前用户会话下增加 `-InstalledPackage`，可验证真实 Windows 程序包激活、桥接代理继承和失败回传：
-
-```powershell
-pwsh -NoProfile -File .\tests\run.ps1 -BuildDirectory .\build -TestDirectory .\test-output -InstalledPackage
-```
-
-该测试使用独立探针运行环境变量检查；对真实 ChatGPT 仅创建新的挂起进程、读取程序包身份后销毁，不执行应用代码，不关闭现有会话。实际界面与联网验收仍需完整退出 ChatGPT，用新版启动器启动后检查页面、工具及浏览器联网。
+EXE 未进行商业代码签名。升级请解压到新目录，在正常退出旧 Codex 后启动；旧版本目录可保留以便回退。

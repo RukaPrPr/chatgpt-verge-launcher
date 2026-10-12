@@ -1,0 +1,23 @@
+{
+  "Version": "1.0.6.0",
+  "BuildRevision": "codex-proxy-6",
+  "Date": "2026-10-12",
+  "CoreChecks": 73,
+  "DiagnosticUnitChecks": 13,
+  "LoopbackScenarios": 11,
+  "TotalPassed": 97,
+  "InstalledPackageActivationRerun": false,
+  "ProductionSessionActivated": false,
+  "OriginalCoreFilesUnchanged": true,
+  "OriginalGuardRuleRecordsUnchanged": true,
+  "OriginalProcessRecordsUnchanged": true,
+  "OriginalDurableTcpRecordsUnchanged": true,
+  "RemainingTestProcesses": 0,
+  "ScriptBuild": "passed",
+  "LegacyMSBuild": "passed_with_existing_environment_warnings",
+  "LegacyMSBuildWarnings": [
+    "MSB3644",
+    "MSB3270"
+  ],
+  "Note": "Published summary only. Machine-specific paths, process IDs, runtime logs and configuration snapshots remain local."
+}

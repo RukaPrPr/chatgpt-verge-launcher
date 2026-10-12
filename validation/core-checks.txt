@@ -1,0 +1,74 @@
+PASS launcher sets runtime override
+PASS launcher persists selected local port
+PASS atomic port update
+PASS interactive response before stdin EOF
+PASS proxy restoration, quoted arguments, and exit-code forwarding
+PASS UTF-8 MCP stdout and stdin preserved
+PASS stderr remains separate
+PASS invalid proxy fails closed on stderr
+PASS missing runtime fails clearly
+PASS manifest resolves ChatGPT entry point and dynamic AppID
+PASS manifest resolves slash-separated executable
+PASS manifest cannot escape package root
+PASS missing entry point is rejected
+PASS external manifest entities are rejected
+PASS bridge refuses a missing or mismatched package identity
+SKIP installed-package activation (pass -InstalledPackage to tests/run.ps1)
+PASS hosts exact byte and BOM round trip
+PASS hosts enable is idempotent
+PASS cleanup preserves unrelated subsequent edits
+PASS existing domain alias mapping rejected
+PASS duplicate owned blocks rejected
+PASS edited owned block preserved for review
+PASS unsupported encoding rejected
+PASS application exit releases session watch
+PASS relay crash ends watch with explicit failure
+PASS relay exit log correlates process IDs and observed exit code
+PASS diagnostic write failure preserves the existing relay-exit handling
+PASS crash recovery exact bytes and ACL: enable/stage-half
+PASS crash recovery exact bytes and ACL: enable/stage-flushed
+PASS crash recovery exact bytes and ACL: enable/journal-half
+PASS crash recovery exact bytes and ACL: enable/journal-flushed
+PASS crash recovery exact bytes and ACL: enable/journal-published
+PASS crash recovery exact bytes and ACL: enable/before-replace
+PASS crash recovery exact bytes and ACL: enable/after-replace
+PASS crash recovery exact bytes and ACL: enable/commit-flushed
+PASS crash recovery exact bytes and ACL: disable/stage-half
+PASS crash recovery exact bytes and ACL: disable/stage-flushed
+PASS crash recovery exact bytes and ACL: disable/journal-half
+PASS crash recovery exact bytes and ACL: disable/journal-flushed
+PASS crash recovery exact bytes and ACL: disable/journal-published
+PASS crash recovery exact bytes and ACL: disable/before-replace
+PASS crash recovery exact bytes and ACL: disable/after-replace
+PASS crash recovery exact bytes and ACL: disable/commit-flushed
+PASS partial ReplaceFile missing destination recovered from verified original
+PASS external edit during pending transaction refused
+PASS external edit and pending evidence preserved
+PASS corrupt journal refused
+PASS corrupt journal does not overwrite hosts
+PASS replacement sharing violation has no in-place fallback
+PASS sharing violation recovers unchanged original
+PASS completed transaction permits unrelated later edits
+PASS recovery precedes preflight: proxy offline
+PASS early return does not launch relay: proxy offline
+PASS recovery precedes preflight: app already running
+PASS early return does not launch relay: app already running
+PASS recovery precedes preflight: package absent
+PASS early return does not launch relay: package absent
+PASS failed recovery blocks preflight
+PASS failed recovery cannot start app
+PASS UTF-8 log write succeeds
+PASS log bytes have UTF-8 content without BOM
+PASS physical log handle resolves to requested file
+PASS live reader does not block log writer
+PASS concurrent records are complete and serialized
+PASS primary sharing violation is reported without crashing lifecycle
+PASS fallback retains failed record and OS error
+PASS primary failure is emitted on stderr
+PASS primary logging resumes after sharing lock released
+PASS double logging failure remains nonfatal to active session
+PASS double logging failure is explicit on stderr
+PASS initial log failure prevents starting a new session
+PASS large per-process log rotates without dropping next record
+PASS session roles and process IDs get separate files
+PASS invalid session paths rejected

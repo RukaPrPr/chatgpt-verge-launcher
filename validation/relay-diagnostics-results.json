@@ -1,0 +1,72 @@
+{
+  "at": "2026-10-12T09:38:52.344Z",
+  "passed": 11,
+  "externalNetworkUsed": false,
+  "productionPortUsed": false,
+  "results": [
+    {
+      "name": "local_eof_large_opaque_bytes",
+      "passed": true,
+      "upBytes": 1048593,
+      "downBytes": 1048654,
+      "firstObserved": "local_to_proxy"
+    },
+    {
+      "name": "proxy_eof",
+      "passed": true,
+      "upBytes": 33,
+      "downBytes": 51,
+      "firstObserved": "proxy_to_local"
+    },
+    {
+      "name": "local_tcp_reset",
+      "passed": true,
+      "upBytes": 33,
+      "downBytes": 51,
+      "firstObserved": "local_to_proxy"
+    },
+    {
+      "name": "proxy_tcp_reset",
+      "passed": true,
+      "upBytes": 33,
+      "downBytes": 51,
+      "firstObserved": "proxy_to_local"
+    },
+    {
+      "name": "connect_407",
+      "passed": true,
+      "elapsedMs": 153,
+      "errorType": "IOException"
+    },
+    {
+      "name": "connect_early_eof",
+      "passed": true,
+      "elapsedMs": 152,
+      "errorType": "IOException"
+    },
+    {
+      "name": "connect_refused",
+      "passed": true,
+      "elapsedMs": 2193,
+      "errorType": "SocketException"
+    },
+    {
+      "name": "existing_5_second_connect_deadline",
+      "passed": true,
+      "elapsedMs": 5163,
+      "errorType": "TimeoutException"
+    },
+    {
+      "name": "idle_over_20_seconds_still_forwards",
+      "passed": true
+    },
+    {
+      "name": "explicit_stop_records_active_tunnel_snapshot",
+      "passed": true
+    },
+    {
+      "name": "log_write_failure_preserves_forwarding_and_fallback_summary",
+      "passed": true
+    }
+  ]
+}

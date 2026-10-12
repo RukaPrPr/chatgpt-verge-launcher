@@ -4,7 +4,8 @@ class RuntimeProbe {
  static int Main(string[] args) {
   foreach(string key in new[]{"HTTP_PROXY","HTTPS_PROXY","ALL_PROXY"})
    if(Environment.GetEnvironmentVariable(key)!="http://127.0.0.1:17896")return 81;
-  if(Environment.GetEnvironmentVariable("NO_PROXY")!="localhost,127.0.0.1")return 82;
+  if(Environment.GetEnvironmentVariable("NO_PROXY")!="localhost,127.0.0.1,::1,[::1]")return 82;
+  if(Environment.GetEnvironmentVariable("NODE_USE_ENV_PROXY")!="1")return 85;
   if(args.Length!=3||args[0]!="space value"||args[1]!="quote\"value"||args[2]!="trailing\\")return 83;
   var reader=new System.IO.StreamReader(Console.OpenStandardInput(),Encoding.UTF8);
   var output=Console.OpenStandardOutput();

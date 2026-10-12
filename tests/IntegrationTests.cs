@@ -26,7 +26,7 @@ class IntegrationTests {
   ControlProxy.ConfigureLauncher(root,17897);Check(ControlProxy.ReadPort(root)==17897,"atomic port update");
   ControlProxy.ConfigureLauncher(root,17896);
   Environment.SetEnvironmentVariable("NODE_REPL_NODE_PATH",Path.Combine(root,"node.exe"));
-  foreach(string key in new[]{"HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","NO_PROXY"})Environment.SetEnvironmentVariable(key,null);
+  foreach(string key in new[]{"HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","NO_PROXY","NODE_USE_ENV_PROXY"})Environment.SetEnvironmentVariable(key,null);
   int code;string payload="{\"message\":\"中文 héllo\"}\nsecond frame\n";
   var result=Run(helper,payload,out code);
   Check(code==37,"proxy restoration, quoted arguments, and exit-code forwarding");

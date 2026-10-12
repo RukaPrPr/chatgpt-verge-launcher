@@ -9,6 +9,10 @@
 /bin/
 /obj/
 control-proxy.port
+proxy-runtime.json
+/diagnostics/
+/relay-diagnostic-output/
+/stdio-test-output/
 
 # Compiled binaries and debug artifacts
 *.exe

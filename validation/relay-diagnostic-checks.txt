@@ -1,0 +1,24 @@
+PASS meter preserves opaque bytes and successful byte count
+PASS meter disposal leaves network stream ownership unchanged
+PASS pending writes are not counted as forwarded bytes
+PASS meter passes cancellation token without adding flushes
+PASS byte count advances only after successful write completion
+PASS write failures preserve exception and do not overcount bytes
+PASS exception diagnostics preserve wrapper type and socket error code
+PASS exception messages and secrets are excluded
+PASS cleanup-induced failure stays distinct from first observed completion
+PASS snapshot retains CONNECT status and only completed write bytes
+PASS simultaneous completions do not invent a first peer
+PASS cancellation is distinct from EOF
+PASS early shutdown snapshot preserves initiating cleanup category
+PASS local_eof_large_opaque_bytes
+PASS proxy_eof
+PASS local_tcp_reset
+PASS proxy_tcp_reset
+PASS connect_407
+PASS connect_early_eof
+PASS connect_refused
+PASS existing_5_second_connect_deadline
+PASS idle_over_20_seconds_still_forwards
+PASS explicit_stop_records_active_tunnel_snapshot
+PASS log_write_failure_preserves_forwarding_and_fallback_summary
